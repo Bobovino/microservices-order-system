@@ -1,0 +1,72 @@
+services:
+  inventory-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${INVENTORY_DB_NAME:?set INVENTORY_DB_NAME in .env}
+      POSTGRES_USER: ${INVENTORY_DB_USER:?set INVENTORY_DB_USER in .env}
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD:?set INVENTORY_DB_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${INVENTORY_DB_USER:?set INVENTORY_DB_USER in .env}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  orders-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${ORDERS_DB_NAME:?set ORDERS_DB_NAME in .env}
+      POSTGRES_USER: ${ORDERS_DB_USER:?set ORDERS_DB_USER in .env}
+      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD:?set ORDERS_DB_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDERS_DB_USER:?set ORDERS_DB_USER in .env}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: inventory-service/Dockerfile
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: inventory-db
+      DB_PORT: 5432
+      DB_NAME: ${INVENTORY_DB_NAME:?set INVENTORY_DB_NAME in .env}
+      DB_USER: ${INVENTORY_DB_USER:?set INVENTORY_DB_USER in .env}
+      DB_PASSWORD: ${INVENTORY_DB_PASSWORD:?set INVENTORY_DB_PASSWORD in .env}
+    ports:
+      - "8082:8082"
+
+  order-service:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    depends_on:
+      orders-db:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+    environment:
+      DB_HOST: orders-db
+      DB_PORT: 5432
+      DB_NAME: ${ORDERS_DB_NAME:?set ORDERS_DB_NAME in .env}
+      DB_USER: ${ORDERS_DB_USER:?set ORDERS_DB_USER in .env}
+      DB_PASSWORD: ${ORDERS_DB_PASSWORD:?set ORDERS_DB_PASSWORD in .env}
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
+    ports:
+      - "8083:8083"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    depends_on:
+      - inventory-service
+      - order-service
+    environment:
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
+      ORDER_SERVICE_URL: http://order-service:8083
+    ports:
+      - "8080:8080"
